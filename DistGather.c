@@ -18,16 +18,19 @@ void localSetup(int nv){
 }
 
 //Makes cartesian 
-void cellNr2cartCoord(int cellNr, int** coords, int* dims){
+int* cellNr2cartCoord(int cellNr, int* GlobalDims){
 /* Input: 	cellNr  - the cellNr in the grid 
 		  	dims    - an array specifying the dimensions of the cartesian grid
 	Output: coords  - the cartesian coordinates of the cellNR
 */	
-	int* output=(int *)malloc(sizeof(int)*2);
- 	output[1]=cellNr%dims[1];
- 	output[0]=cellNr/dims[0];	
- 	*coords=output;
+	int output[2];
+ 	output[1]=cellNr%GlobalDims[1];
+ 	output[0]=cellNr/GlobalDims[0];	
+	return output;
 }
+
+
+
 
 int cartCoord2cellNr( int x, int y, int* dims){
 /* Input: 	x,y  - the cartesian coordinates of the cellNR
