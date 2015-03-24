@@ -3,6 +3,7 @@
 #include<math.h>
 #include<mpi.h>
 #include"globalVars.h"
+#include"GraphUtilities.h"
 
 
 void localSetup(int nv){
@@ -18,15 +19,13 @@ void localSetup(int nv){
 }
 
 //Makes cartesian 
-int* cellNr2cartCoord(int cellNr, int* GlobalDims){
+void cellNr2cartCoord(int cellNr, int* GlobalDims, int* output){
 /* Input: 	cellNr  - the cellNr in the grid 
 		  	dims    - an array specifying the dimensions of the cartesian grid
 	Output: coords  - the cartesian coordinates of the cellNR
 */	
-	int output[2];
  	output[1]=cellNr%GlobalDims[1];
  	output[0]=cellNr/GlobalDims[0];	
-	return output;
 }
 
 
@@ -64,36 +63,44 @@ void buildSubGraph(int i,int* ia, int* ja, int* local_ia, int* local_ja, int* lo
 			j_count=0;
 			for(j=xlimits[0];j<xlimits[1];j++){
 				for(k=ylimits[0];k<ylimits[1];k++){
-		//			printf("gridDims is (%d,%d)\n",gridDims[0],gridDims[1]);
+				//	printf("gridDims is (%d,%d)\n",gridDims[0],gridDims[1]);
 					tmp=cartCoord2cellNr(j,k,gridDims);
-		//			printf("tmp is %d for (%d,%d) \n ",tmp,j,k);
+				//	printf("tmp is %d for (%d,%d) \n ",tmp,j,k);
+					
+					int testProc=procNrFromCell(local_dims, gridDims, tmp);
+				//	printf("cart coords: (%d,%d) with cellNr: %d is going to %d. Check: %d\n",j,k,tmp,testProc,i);
 					local_map[count]=tmp;
 					local_ia[count++]=j_count;				
 					for(l=ia[tmp];l<ia[tmp+1];l++){
+
 						if(local_numOfEdges<j_count){
 							local_numOfEdges=local_numOfEdges+local_dims[0]*local_dims[1];
 							local_ja = (int *) realloc(local_ja,local_numOfEdges);
 						}
 						local_ja[j_count++]=ja[l];
+
 					}
 				}	
 			}
 	    	local_ia[count]=j_count;
 	    	*j_count_out=j_count;
+
 }
 
 //Takes in a sparse grid, including sources, and distributes it to n different processes
 void distGraph(int* ia, int* ja){
 	if(rank==0){
 	
-		int i,*j_count;
+		int i;
+		int j_count;
 		
 		for(i=1;i<size;i++){
-			buildSubGraph(i, ia, ja, local_ia,local_ja,local_map, j_count);
+			buildSubGraph(i, ia, ja, local_ia,local_ja,local_map, &j_count);
 			MPI_Send(local_ia, local_dims[0]*local_dims[1], MPI_INT, i, 0,cart_comm);
 			MPI_Send(local_map, local_dims[0]*local_dims[1], MPI_INT, i, 1, cart_comm);
-			MPI_Send(local_ja,*j_count , MPI_INT, i, 2, cart_comm);
+			MPI_Send(local_ja,j_count , MPI_INT, i, 2, cart_comm);
 		}
+		buildSubGraph(0, ia, ja, local_ia,local_ja,local_map, &j_count);
 	}
 	else{
 	 int size_ia,size_ja,size_map;

@@ -8,26 +8,28 @@
 
 
 
+
+
+int procNrFromCell(int LocalGridDims[], int CartGridDims[], int CellNr){ //Finds which processor a certain cell resides on
+	int *CartCoords = (int*) malloc(2*sizeof(int));
+	cellNr2cartCoord(CellNr, CartGridDims, CartCoords);
+//	printf("Cartcoords are (%d,%d)\n",CartCoords[0],CartCoords[1]);
+//	printf("LocalGridDims: (%d,%d) \n", LocalGridDims[0],LocalGridDims[1]);
+	int procCoord[2];
+	procCoord[0]=(CartCoords[0]) /(LocalGridDims[0]);
+	procCoord[1]=(CartCoords[1]) / (LocalGridDims[1]);
+
+	//printf("ProcCoord are (%d, %d)\n", procCoord[0],procCoord[1]);
+	int rank;
+	MPI_Cart_rank(cart_comm, procCoord, &rank);
+	return rank;
+}
+
 //Read a .csv file an make a directed graph in sparse matrix format
 /*The file has to have the following format:
 - The first line consists of a single number, indication the number of vertices in the graph.
 - line number i indicates contains a list of vertices with edges from the i'th vertice on the format: k,l,m; 
 */
-
-int procNrFromCell(int LocalGridDims[], int CartGridDims[], int CellNr){ //Finds which processor a certain cell resides on
-	int* CartCoords;
-	CartCoords=cellNr2cartCoord(CellNr, CartGridDims);
-	printf("Cartcoords are (%d,%d)\n",CartCoords[0],CartCoords[1]);
-	int procCoord[2];
-	procCoord[0] = CartCoords[0]/LocalGridDims[0];
-	procCoord[1]= CartCoords[1]/LocalGridDims[1];
-	printf("ProcCoord is (%d, %d)\n", procCoord[0],procCoord[1]);
-	int rank;
-	//MPI_Cart_rank(cart_comm, procCoord, &rank);
-	return rank;
-}
-
-
 void importGrid(char* file, int **ia, int **ja, int *nv){
     
     FILE * fp;
