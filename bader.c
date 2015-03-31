@@ -23,22 +23,20 @@ int main(int argc,  char* argv[]){
 	
 	
 	if(rank==0){
-			importGrid("Grids/grid1src100.txt", &ia, &ja, &nv);
-			//printGraph(ia,ja,nv);
+			importGrid("Grids/grid1src100sycle.txt", &ia, &ja, &nv);
+		//	printGraph(ia,ja,nv);
 		
 	}
 	
 	//All processors need to know the global problem size. (Would be cool, and probably possible, to avoid this.) 
  	MPI_Bcast(&nv, 1, MPI_INT, 0,cart_comm);
  	localSetup(nv);
- 	distGraph(ia,ja);
+	distGraph(ia,ja);
  	
- 	if(rank==0){
- 	//printMappedGraph(local_ia,local_ja,local_map,nv/size);
+ //	if(rank==3){
  	discovery(nv/size);
-  	}
-	
-	
+ //	printMappedGraph(local_ia,local_ja,local_map,nv/size);
+  //	}
     MPI_Finalize();
 
 	return 0;

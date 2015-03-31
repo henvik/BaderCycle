@@ -13,32 +13,12 @@ void localSetup(int nv){
 	local_dims[1]=gridDims[1]/dims[1];
 	
 	local_numOfEdges=local_dims[0]*local_dims[1]*4;  //preliminary value
-	local_ia= (int *)malloc(local_dims[0]*local_dims[1]*sizeof(int));
+	local_ia= (int *)malloc((local_dims[0]*local_dims[1]+1)*sizeof(int)); //size=number of vertices +1. Needs to hold the size of local_ja as well.
 	local_ja= (int *)malloc(4*local_dims[0]*local_dims[1]*sizeof(int)); //4 times the number of nodes should be enough (allways for 2D graph). Reallocating later if necassary.
 	local_map= (int *)malloc(local_dims[0]*local_dims[1]*sizeof(int));
 }
 
-//Makes cartesian 
-void cellNr2cartCoord(int cellNr, int* GlobalDims, int* output){
-/* Input: 	cellNr  - the cellNr in the grid 
-		  	dims    - an array specifying the dimensions of the cartesian grid
-	Output: coords  - the cartesian coordinates of the cellNR
-*/	
- 	output[1]=cellNr%GlobalDims[1];
- 	output[0]=cellNr/GlobalDims[0];	
-}
 
-
-
-
-int cartCoord2cellNr( int x, int y, int* dims){
-/* Input: 	x,y  - the cartesian coordinates of the cellNR
-		  	dims    - an array specifying the dimensions of the cartesian grid
-	Output: cellNr  - the cellNr in the grid 
-*/	
-	int output=x*dims[1]+y;
-	return output;
-}
 
 void buildSubGraph(int i,int* ia, int* ja, int* local_ia, int* local_ja, int* local_map, int* j_count_out){
 /* Input: i - rank of the receiving process
@@ -47,44 +27,40 @@ void buildSubGraph(int i,int* ia, int* ja, int* local_ia, int* local_ja, int* lo
 		  local_ia, local_ja, local_map - pointers to the buffers in which to store the subgraph
 */
 
-		int j,k,l,tmp,count,j_count,
-			dest[2],
-			xlimits[2],
-			ylimits[2];
+	int j,k,l,globalCellNr,localCellNr,count,j_count,
+		dest[2],
+		xlimits[2],
+		ylimits[2];
 
-			MPI_Cart_coords(cart_comm,i, 2, dest);
-		//	printf("Dest: (%d,%d), with local_dims: (%d,%d)\n",dest[0],dest[1],local_dims[0],local_dims[1]);
-			xlimits[0]=dest[0]*local_dims[0];
-			xlimits[1]=xlimits[0]+local_dims[0];
-			ylimits[0]=dest[1]*local_dims[1];
-			ylimits[1]=ylimits[0]+local_dims[1];
+		MPI_Cart_coords(cart_comm,i, 2, dest);
+//			printf("Dest: (%d,%d), with local_dims: (%d,%d)\n",dest[0],dest[1],local_dims[0],local_dims[1]);
+		xlimits[0]=dest[0]*local_dims[0];
+		xlimits[1]=xlimits[0]+local_dims[0];
+		ylimits[0]=dest[1]*local_dims[1];
+		ylimits[1]=ylimits[0]+local_dims[1];
 		//	printf("xlims: (%d,%d), ylims: (%d,%d) \n",xlimits[0],xlimits[1],ylimits[0],ylimits[1]);
-			count=0;
-			j_count=0;
-			for(j=xlimits[0];j<xlimits[1];j++){
-				for(k=ylimits[0];k<ylimits[1];k++){
-				//	printf("gridDims is (%d,%d)\n",gridDims[0],gridDims[1]);
-					tmp=cartCoord2cellNr(j,k,gridDims);
-				//	printf("tmp is %d for (%d,%d) \n ",tmp,j,k);
-					
-					int testProc=procNrFromCell(local_dims, gridDims, tmp);
-				//	printf("cart coords: (%d,%d) with cellNr: %d is going to %d. Check: %d\n",j,k,tmp,testProc,i);
-					local_map[count]=tmp;
-					local_ia[count++]=j_count;				
-					for(l=ia[tmp];l<ia[tmp+1];l++){
+		count=0;
+		j_count=0;
+		for(j=ylimits[0];j<ylimits[1];j++){
+			for(k=xlimits[0];k<xlimits[1];k++){
+				globalCellNr=cartCoord2cellNr(k,j,gridDims);
+				localCellNr=globalCellNr2localCellNr(globalCellNr,gridDims, local_dims);					
+				//printf("build for proc %d. GlobCoords: (%d,%d). GlobCellNr: %d, locCellNr: %d\n ",i,k,j,globalCellNr,localCellNr);
+				local_map[localCellNr]=globalCellNr;
+				local_ia[localCellNr]=j_count;				
+				for(l=ia[globalCellNr];l<ia[globalCellNr+1];l++){
 
-						if(local_numOfEdges<j_count){
-							local_numOfEdges=local_numOfEdges+local_dims[0]*local_dims[1];
-							local_ja = (int *) realloc(local_ja,local_numOfEdges);
-						}
-						local_ja[j_count++]=ja[l];
-
+					if(local_numOfEdges<j_count){
+						local_numOfEdges=local_numOfEdges+local_dims[0]*local_dims[1];
+						local_ja = (int *) realloc(local_ja,local_numOfEdges);
 					}
-				}	
-			}
-	    	local_ia[count]=j_count;
-	    	*j_count_out=j_count;
+					local_ja[j_count++]=ja[l];
 
+				}
+			}	
+		}
+    	local_ia[localCellNr+1]=j_count;
+	*j_count_out=j_count;
 }
 
 //Takes in a sparse grid, including sources, and distributes it to n different processes
@@ -96,7 +72,7 @@ void distGraph(int* ia, int* ja){
 		
 		for(i=1;i<size;i++){
 			buildSubGraph(i, ia, ja, local_ia,local_ja,local_map, &j_count);
-			MPI_Send(local_ia, local_dims[0]*local_dims[1], MPI_INT, i, 0,cart_comm);
+			MPI_Send(local_ia, local_dims[0]*local_dims[1]+1, MPI_INT, i, 0,cart_comm);
 			MPI_Send(local_map, local_dims[0]*local_dims[1], MPI_INT, i, 1, cart_comm);
 			MPI_Send(local_ja,j_count , MPI_INT, i, 2, cart_comm);
 		}

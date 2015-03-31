@@ -6,9 +6,57 @@
 #include"globalVars.h"
 #include"DistGather.h"
 
+void cellNr2cartCoord(int cellNr, int* GlobalDims, int* output){
+	/* Input:       cellNr  - the cellNr in the grid 
+	 *                         dims    - an array specifying the dimensions of the cartesian grid
+	 *                                 Output: coords  - the cartesian coordinates of the cellNR
+	 *                                 */
+	        output[1]=cellNr/GlobalDims[1];
+		        output[0]=cellNr%GlobalDims[0];
+}
 
 
 
+
+int cartCoord2cellNr( int x, int y, int* dims){
+	/* Input:       x,y  - the cartesian coordinates of the cellNR
+	 *                         dims    - an array specifying the dimensions of the cartesian grid
+	 *                                 Output: cellNr  - the cellNr in the grid 
+	 *                                 */
+	        int output=y*dims[1]+x;
+		        return output;
+}
+
+
+void globalCoords2localCoords(int globalCoords[],int localDims[],  int* localCoords ){
+	/* Input: globalCoords  -  cartesian coordinates in the global grid,
+	 *	  localDims 	-  dimension of the local subgrid
+	 *Output: localCoords   -  cartesian coordinates in the subgrid	 
+	 */
+	localCoords[0]=globalCoords[0]%localDims[0];
+	localCoords[1]=globalCoords[1]%localDims[1];
+}
+
+int  localCoords2localCellNr(int localCoords[],int  localDims[]){
+	/*Input: localCoords - local cartesian coordinates
+	 * 	 localDims   - dimension of the local subgrid
+	 *Outpu: localCellNr - the cellNr in the local adjecency list
+	 */
+
+	int localCellNr=localCoords[1]*localDims[0]+localCoords[0];
+	return localCellNr;
+}
+int globalCellNr2localCellNr(int globalCellNr, int globalDims[],int localDims[]){
+	/*Input: globalCellNr  - cellNr in the global adjecency list
+	 * Output: localCellNr - local cellNr in the local adjecency list
+	 */
+	int* tmp=(int *)malloc(2*sizeof(int));
+	cellNr2cartCoord(globalCellNr,globalDims,tmp);
+	globalCoords2localCoords(tmp,localDims,tmp);	
+     	int localCellNr = localCoords2localCellNr(tmp,localDims);
+ 	free(tmp);
+	return localCellNr;
+}
 
 int procNrFromCell(int LocalGridDims[], int CartGridDims[], int CellNr){ //Finds which processor a certain cell resides on
 	int *CartCoords = (int*) malloc(2*sizeof(int));
@@ -19,7 +67,7 @@ int procNrFromCell(int LocalGridDims[], int CartGridDims[], int CellNr){ //Finds
 	procCoord[0]=(CartCoords[0]) /(LocalGridDims[0]);
 	procCoord[1]=(CartCoords[1]) / (LocalGridDims[1]);
 
-	//printf("ProcCoord are (%d, %d)\n", procCoord[0],procCoord[1]);
+	//printf("Cellnr: %d, CartCoords, (%d,%d), ProcCoord are (%d, %d)\n",CellNr, CartCoords[0], CartCoords[1], procCoord[0],procCoord[1]);
 	int rank;
 	MPI_Cart_rank(cart_comm, procCoord, &rank);
 	return rank;
@@ -41,13 +89,11 @@ void importGrid(char* file, int **ia, int **ja, int *nv){
     int numOfLines; //to store the number of lines
 
 	char* buffer = (char*)malloc(sizeof(char)*32); //Char buffer
-	
 	fp=fopen(file,"r");	
 	if(fp==NULL){
 	   exit(EXIT_FAILURE);
 	}
 	int line_nr=0;
-	
 	//Reads the first line
 	fgets(line,60,fp);
 	numOfLines=atoi(line);
