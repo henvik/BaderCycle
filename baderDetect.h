@@ -1,23 +1,36 @@
 #ifndef BADERDETECT_INCLUDED
 #define BADERDETECT_INCLUDED
 
-typedef struct {
-   int    v;
-   int    w;
-}Edge;
+#include"GraphUtilities.h"
 
-typedef struct {
-   int size;
-   int* list;
-}AdjLst;
-
+//The first phase of the algorithm, finds local cycles, builds the local part of the express graph, and calls the communication step 
 void discovery(int num_vert);
-AdjLst  visit(int v);
-void concatenate(int* A, int* B, int* lengthA, int* lengthB);
 
-Edge new_edge(int v, int w);
-void add_trans_arc(int v, int w,Edge* trans_arcs, int trans_arcs_count);
-AdjLst new_AdjLst();
-AdjLst merge_AdjLst(AdjLst A, AdjLst B);
-AdjLst add_Edge(AdjLst A, int edge);
+
+//Visits a node. Calls recursively
+AdjLst  visit(int v);
+
+//Communicates transArcs and builds the express graphs
+void comm_transArcs(EdgeLst *expGraph);
+
+// Builds the buffer for sending the transarcs
+void build_transBuffer(int *buffSizes, EdgeLst *trans_buffer);
+
+
+//Merges the local sub-graphs together into an single graphs, detecting cycles as it goes.
+void merge(EdgeLst* expGraph);
+
+int last(int z, int h);
+
+int test(int z, int h);
+
+int clear(int z, int h);
+int set(int z, int h);
+
+void RecieveExp(int procNr, EdgeLst* graphBuff);
+
+void SendExp(int procNr, EdgeLst* graphBuff);
+
+void MergeGraphsEx(EdgeLst* expGraph, EdgeLst* graphBuff);
+
 #endif

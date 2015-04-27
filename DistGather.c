@@ -18,7 +18,11 @@ void localSetup(int nv){
 	local_map= (int *)malloc(local_dims[0]*local_dims[1]*sizeof(int));
 }
 
-
+void free_local(){
+	free(local_ia);
+	free(local_ja);
+	free(local_map);
+}
 
 void buildSubGraph(int i,int* ia, int* ja, int* local_ia, int* local_ja, int* local_map, int* j_count_out){
 /* Input: i - rank of the receiving process

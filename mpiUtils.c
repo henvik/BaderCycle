@@ -1,6 +1,8 @@
+#include<stdio.h>
+#include<stdlib.h>
 #include<mpi.h>
 #include"globalVars.h"
-
+#include"baderDetect.h"
 // MPI initialization, setting up cartesian communicator
 void init_mpi(int argc, char** argv){
     MPI_Init(&argc, &argv);
@@ -13,4 +15,17 @@ void init_mpi(int argc, char** argv){
     
     MPI_Cart_shift( cart_comm, 0, 1, &north, &south );
     MPI_Cart_shift( cart_comm, 1, 1, &west, &east );
+}
+
+
+void def_datatypes(MPI_Datatype *particletype){
+    MPI_Datatype oldtypes[1];
+    int count,  blockcount[1];
+    MPI_Aint  offsets[1];
+    count=1;
+    blockcount[0]=2;
+    oldtypes[0]=MPI_INT;
+    offsets[0]=0;
+    MPI_Type_struct(count,blockcount,offsets,oldtypes,particletype);
+    MPI_Type_commit(particletype);
 }

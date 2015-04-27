@@ -2,9 +2,12 @@
 #include<math.h>
 #include<stdlib.h>
 #include<mpi.h>
+#include<string.h>
 
 #include"globalVars.h"
 #include"DistGather.h"
+#include"GraphUtilities.h"
+
 
 void cellNr2cartCoord(int cellNr, int* GlobalDims, int* output){
 	/* Input:       cellNr  - the cellNr in the grid 
@@ -170,5 +173,90 @@ void printMappedGraph(int* ia, int *ja,int *map, int nv){
 			printf("%d, ",ja[j]);
 		}
 		printf("\n");
+	}
+}
+
+
+void concatenate(int* A, int* B,int* lengthA, int* lengthB){
+	A=realloc(A,sizeof(int)*(*lengthA+*lengthB));
+
+	memcpy(A+*lengthA,B,*lengthB*sizeof(int));	
+	*lengthA=*lengthA+*lengthB;
+}
+Edge new_edge(int v, int w){
+	Edge new={v,w};
+	return new;
+}
+
+AdjLst new_AdjLst(){
+	AdjLst new;
+	new.size=0;
+	new.list=NULL;
+	return new;
+}
+
+EdgeLst new_EdgeLst(int size){
+	EdgeLst new;
+	new.size=size;
+	if(size==0){
+		new.list=NULL;
+	}else{
+		new.list=(Edge *)malloc(size*sizeof(Edge));
+	}
+	return new;
+}
+
+void add_EdgeToLst(Edge e,int index, EdgeLst* lst){
+	if(index>=lst->size){
+		lst->size=lst->size+index*2;
+		lst->list=realloc(lst->list,lst->size*sizeof(Edge));
+	}
+	lst->list[index]=e;
+}
+
+
+AdjLst merge_AdjLst(AdjLst A, AdjLst B){
+	if(A.size==0 &&  B.size==0){
+		return A;
+	}else{
+	A.list=(int *) realloc(A.list,sizeof(int)*(A.size+B.size));
+	memcpy(A.list+A.size,B.list,B.size*sizeof(int));
+	A.size=A.size+B.size;
+	return A;
+	}
+
+}
+
+void add_Edge(AdjLst *A, int edge){
+	if(A->size==0){
+		A->list=(int *)malloc(sizeof(int));
+		A->size++;
+	}else{
+		A->size++;
+		A->list=(int *) realloc(A->list,sizeof(int)*(A->size));
+	
+	}
+	A->list[A->size-1]=edge;
+	
+}
+
+void add_trans_arc(int v, int w,EdgeLst *trans_arcs, int *trans_arcs_count, AdjLst* adjecent){
+	if(*trans_arcs_count==trans_arcs->size){
+		trans_arcs->list=realloc(trans_arcs->list,sizeof(Edge)*(trans_arcs->size*2));
+		trans_arcs->size=trans_arcs->size*2;
+	}
+
+	trans_arcs->list[*trans_arcs_count]=new_edge(local_map[v],w);
+	*trans_arcs_count+=1;
+	add_Edge(&adjecent[v],w);
+}
+
+void expand_buffer(EdgeLst *recv_buffer, int recv_size){
+	if(recv_buffer->size==0){
+		recv_buffer->list=(Edge *)malloc(sizeof(Edge)*recv_size);
+		recv_buffer->size+=recv_size;
+	}else{
+		recv_buffer->list=realloc(recv_buffer->list,(recv_buffer->size + recv_size)*sizeof(Edge));
+		recv_buffer->size+=recv_size;
 	}
 }
