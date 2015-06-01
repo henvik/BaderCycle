@@ -3,6 +3,7 @@
 #include<stdlib.h>
 #include<mpi.h>
 #include<string.h>
+#include<stdbool.h>
 
 #include"globalVars.h"
 #include"DistGather.h"
@@ -94,6 +95,7 @@ void importGrid(char* file, int **ia, int **ja, int *nv){
 	char* buffer = (char*)malloc(sizeof(char)*32); //Char buffer
 	fp=fopen(file,"r");	
 	if(fp==NULL){
+		printf("File failed to open\n");
 	   exit(EXIT_FAILURE);
 	}
 	int line_nr=0;
@@ -215,29 +217,39 @@ void add_EdgeToLst(Edge e,int index, EdgeLst* lst){
 }
 
 
-AdjLst merge_AdjLst(AdjLst A, AdjLst B){
-	if(A.size==0 &&  B.size==0){
-		return A;
+void merge_AdjLst(AdjLst *A, AdjLst *B){
+	if(A->size==0 &&  B->size==0){
+		return;
 	}else{
-	A.list=(int *) realloc(A.list,sizeof(int)*(A.size+B.size));
-	memcpy(A.list+A.size,B.list,B.size*sizeof(int));
-	A.size=A.size+B.size;
-	return A;
+		for(int i=0;i<B->size;i++){
+				add_Edge(A,B->list[i]);
+		}
 	}
+}
 
+bool isInAdjLst(AdjLst A,int x){
+	for(int i=0; i<A.size; i++){
+		if(A.list[i]==x){
+			return true;
+		}
+	}
+	return false;
 }
 
 void add_Edge(AdjLst *A, int edge){
-	if(A->size==0){
-		A->list=(int *)malloc(sizeof(int));
-		A->size++;
+	if(isInAdjLst(*A,edge)){
+		return;
 	}else{
-		A->size++;
-		A->list=(int *) realloc(A->list,sizeof(int)*(A->size));
+		if(A->size==0){
+			A->list=(int *)malloc(sizeof(int));
+			A->size++;
+		}else{
+			A->size++;
+			A->list=(int *) realloc(A->list,sizeof(int)*(A->size));
 	
+		}
+		A->list[A->size-1]=edge;
 	}
-	A->list[A->size-1]=edge;
-	
 }
 
 void add_trans_arc(int v, int w,EdgeLst *trans_arcs, int *trans_arcs_count, AdjLst* adjecent){
@@ -259,4 +271,218 @@ void expand_buffer(EdgeLst *recv_buffer, int recv_size){
 		recv_buffer->list=realloc(recv_buffer->list,(recv_buffer->size + recv_size)*sizeof(Edge));
 		recv_buffer->size+=recv_size;
 	}
+}
+
+
+//----------ExpGraph-------
+
+
+ExpGraph* new_ExpGraph(){
+	ExpGraph *new = malloc(sizeof(ExpGraph));
+	
+	new->first=NULL;
+	new->num_vert=0;
+	
+	return new;
+}
+
+ExVert* new_ExVert(int vert_num, int procNr){
+	ExVert *new = malloc(sizeof(ExVert));
+	
+	new->vert_num=vert_num;
+	new->procNr=procNr;
+	new->trans_arcs=NULL;
+	new->exp_arcs=NULL;
+	new->next=NULL;
+	
+	return new;
+
+}
+
+
+void addExVert(ExpGraph *G, ExVert *vert){
+	vert->next=G->first;
+	G->first=vert;
+	G->num_vert++;
+}
+
+void addTransArc(ExVert *vert, TransArc *trans_arc){
+	trans_arc->next=vert->trans_arcs;
+	vert->trans_arcs=trans_arc;
+}
+
+void addExArc(ExVert *vert, ExArc *ex_arc){
+	if(isInExp_arcs(vert,ex_arc)){
+		return;
+	}
+	ex_arc->next=vert->exp_arcs;
+	vert->exp_arcs=ex_arc;
+}
+
+bool isInExp_arcs(ExVert *vert,ExArc *ex_arc){
+	ExArc *current=vert->exp_arcs;
+	while(current){
+		if(current->vert_num==ex_arc->vert_num){
+			return true;
+		}
+		current=current->next;
+	}
+	return false;
+}
+
+TransArc* newTransArc(int proc_nr, int vert_num){
+	TransArc* new = malloc(sizeof(TransArc));
+	
+	new->proc_nr=proc_nr;
+	new->vert_num=vert_num;
+	new->next=NULL;
+	
+	return new;
+}
+
+ExArc* newExArc(int vert_num, int proc_nr){
+	ExArc* new = malloc(sizeof(ExArc));
+	
+	new->vert_num=vert_num;
+	new->proc_nr=proc_nr;
+	new->next=NULL;
+	
+	return new;
+}
+
+void removeExArc(ExVert *vert, ExArc *exarc){
+	ExArc *current=vert->exp_arcs;
+	if(current->vert_num==exarc->vert_num){
+		vert->exp_arcs=exarc->next;
+		free(exarc);
+		return;
+	}
+	
+	ExArc *next=current->next;
+	while(next->vert_num!=exarc->vert_num){
+		current=next;
+		next=current->next;
+	}
+	current->next=next->next;
+	free(exarc);
+}
+
+void removeExVert(ExpGraph *G,ExVert *vert){
+	if(G->first->vert_num==vert->vert_num){
+		G->first=vert->next;
+		return;
+	}
+	
+	ExVert *current=G->first;
+	while(current->next->vert_num!=vert->vert_num){
+		current=current->next;
+	}
+	current->next=vert->next;
+	
+}
+
+ExVert* FindExVert(ExpGraph *G, int v){
+	ExVert *current = G->first;
+	while(current!=NULL){
+		if(current->vert_num==v){
+			return current;
+		}
+	current=current->next;
+	}
+	return current;
+}
+
+
+
+void printfExpGraph(ExpGraph *G){
+	ExVert *current=G->first;
+	while(current!=NULL){
+		printf("Vert %d has: \n",current->vert_num);
+		printf("     trans arcs: ");
+		TransArc *cTArc=current->trans_arcs;
+		while(cTArc!=NULL){
+			printf(" %d,", cTArc->vert_num);
+			cTArc=cTArc->next;
+		}
+		printf("\n Express arcs: ");
+		ExArc *cEArc =current->exp_arcs;
+		while(cEArc!=NULL){
+			printf(" %d,", cEArc->vert_num);
+			cEArc=cEArc->next;
+		}
+		printf("\n");
+	current=current->next;
+	}											
+}
+
+void addExternalEdge(ExpGraph *G, int internal_vert_num, int external_vert_num, int in_procNr ,int external_procNr, AdjLst *adjecent){
+	ExVert *exit = new_ExVert(internal_vert_num, in_procNr);
+	
+	addTransArc(exit,newTransArc(external_procNr,external_vert_num));
+	addExVert(G, exit);
+	
+	add_Edge(adjecent,external_vert_num);
+}
+
+bool isReachable(AdjLst adjecent,int vert_num){
+	for(int i=0; i<adjecent.size; i++){
+		if(adjecent.list[i]==vert_num){
+			return true;
+		}
+	}
+	return false;
+}
+
+bool isInExpGraph(ExpGraph *G, int vert_num){
+	ExVert *current=G->first;
+	while(current){
+		if(current->vert_num==vert_num){
+			return true;
+		}
+		current=current->next;
+	}
+	return false;
+}
+
+ExpGraph* mergeVertices(ExpGraph *exp1,ExpGraph *exp2){
+	
+	ExpGraph *exp0=new_ExpGraph();
+	ExVert *current=exp1->first;
+	
+	while(current){
+		ExVert *new=new_ExVert(current->vert_num,current->procNr);
+		ExArc *cExArc=current->exp_arcs;
+		while(cExArc){
+			addExArc(new,newExArc(cExArc->vert_num,cExArc->proc_nr));
+			cExArc=cExArc->next;
+		}
+		addExVert(exp0,new);
+		current=current->next;
+
+	}
+	current=exp2->first;
+	while(current){
+		if(isInExpGraph(exp0,current->vert_num)){
+			ExVert *this=FindExVert(exp0,current->vert_num);	
+			ExArc *cExArc=current->exp_arcs;
+			while(cExArc){
+				addExArc(this,newExArc(cExArc->vert_num,cExArc->proc_nr));
+				cExArc=cExArc->next;
+				
+			}
+		}else{
+			ExVert *new=new_ExVert(current->vert_num,current->procNr);
+			ExArc *cExArc=current->exp_arcs;
+			while(cExArc){
+				addExArc(new,newExArc(cExArc->vert_num,cExArc->proc_nr));
+				cExArc=cExArc->next;
+				
+			}
+
+			addExVert(exp0,new);
+		}
+		current=current->next;
+	}
+	
+	return exp0;
 }

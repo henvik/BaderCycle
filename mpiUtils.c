@@ -1,6 +1,8 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<mpi.h>
+#include<stdbool.h>
+
 #include"globalVars.h"
 #include"baderDetect.h"
 // MPI initialization, setting up cartesian communicator

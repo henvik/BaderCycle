@@ -2,6 +2,8 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<mpi.h>
+#include<stdbool.h>
+
 #include"DistGather.h"
 #include"GraphUtilities.h"
 #include"mpiUtils.h"
@@ -38,10 +40,10 @@ int main(int argc,  char* argv[]){
 // 	printf("I am nr %d. North=%d, south=%d, west=%d, and east=%d. \n",rank,north,south,west,east);	
 
  //	if(rank==3){
-	discovery(nv/size);
+	ExpGraph *expGraph=discovery(nv/size);
 // 	printMappedGraph(local_ia,local_ja,local_map,nv/size);
   //	}
-
+	merge(expGraph);
     free_local();
     if(rank==0){
 	    free(ia);
