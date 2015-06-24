@@ -4,6 +4,7 @@
 #include<mpi.h>
 #include<string.h>
 #include<stdbool.h>
+#include<time.h>
 
 #include"globalVars.h"
 #include"baderDetect.h"
@@ -19,10 +20,6 @@
 
 char * color; //Array for colorcoding
 
-EdgeLst trans_arcs; //Trans arcs
-int trans_arcs_size;
-int trans_arcs_count;
-
 AdjLst* adjecent;  //Holds the R_v list
 
 ExpGraph *expGraph;
@@ -36,22 +33,39 @@ ExpGraph* discovery(int num_vert){
 	color=(char*) malloc(num_vert*sizeof(char)); 
 	adjecent=(AdjLst *)malloc(sizeof(AdjLst)*num_vert); //adjecent is a list of pointers. Each pointer points to an array where the R_v's are stored
  	
- 	trans_arcs_size=sqrt(num_vert)*4; //same as the size of the "border". Changed later if needed.
- 	trans_arcs=new_EdgeLst(trans_arcs_size);
-	trans_arcs_count=0;
 	
 	expGraph=new_ExpGraph();
 	
 	for(int i=0; i<num_vert;i++){
 		color[i]=WHITE;
 	} 
+	printf("start\n");
 	for(int i=num_vert-1; i>=0;i--){
 		if(color[i]==WHITE){
 			adjecent[i]=visit(i);
 		}
 	}
+	printf("End\n");
+	
+	//Communicate whether any of the processes have found a cycle. All processes end if any cycles are found.
+	int *found=calloc(size,sizeof(int));
+	int *recv=malloc(size*sizeof(int));
+	MPI_Alltoall(found,1,MPI_INT,recv,1,MPI_INT, cart_comm);
+	for(int i=0; i<size;i++){
+		if(recv[i]){
+			MPI_Finalize();
+			exit(0);
+		}
+	}
+	
+	
 // 	printf("Trans_arcs_count: %d\n",trans_arcs_count);
-	if(rank==2){	
+	
+	comm_transArcs(expGraph);
+	completeExpGraph(expGraph,adjecent);
+	
+	if(rank==-1){
+		printfExpGraph(expGraph);	
 		for(int i=0;i<num_vert;i++){
 		
 			printf(" %d:",local_map[i]);
@@ -61,14 +75,6 @@ ExpGraph* discovery(int num_vert){
 			printf("\n");
 		}
 	}
-	//EdgeLst expGraph=new_EdgeLst(0);;
-	
-	comm_transArcs(expGraph);
-	completeExpGraph(expGraph,adjecent);
-	if(rank==2)
-	printfExpGraph(expGraph);
-
-//	merge(&expGraph);
 	free(color);
 
 	for(int i=0;i<num_vert;i++){
@@ -77,7 +83,6 @@ ExpGraph* discovery(int num_vert){
 		}
 	}
 	free(adjecent);
-	free(trans_arcs.list);
 	return expGraph;
 }
 
@@ -102,6 +107,15 @@ AdjLst visit(int v){
 					break;
 				case RED:
 					printf("Cycle found %d, im outta here!\n",local_map[v]);
+					end=clock();
+					time_spent=(double)(end-begin)/CLOCKS_PER_SEC;
+					printf("For proc %d, cycle was detcted after %f sec\n",rank,time_spent);
+					int *found=malloc(size*sizeof(int));
+					for(int i=0; i<size;i++){
+						found[i]=1;
+					}
+					int *recv=malloc(size*sizeof(int));
+					MPI_Alltoall(found,1,MPI_INT,recv,1,MPI_INT, cart_comm);
 					MPI_Finalize();
 					exit(0);
 			}
@@ -129,9 +143,10 @@ void completeExpGraph(ExpGraph *G,AdjLst *adjecent){
 		if(current->procNr!=rank){
 			TransArc *cTarc=current->trans_arcs;
 			while(cTarc){
-				int index=globalCellNr2localCellNr(cTarc->vert_num,gridDims,local_dims);
+				int index=globalCellNr2localCellNr(cTarc->head->vert_num,gridDims,local_dims);
 				for(int i=0; i<adjecent[index].size;i++){
-					addExArc(current,newExArc(adjecent[index].list[i], cTarc->proc_nr));
+					ExVert *find=FindExVert(G,adjecent[index].list[i]);
+					addExArc(current,newExArc(find));
 				}
 				cTarc=cTarc->next;
 			}
@@ -147,10 +162,10 @@ void completeExpGraph(ExpGraph *G,AdjLst *adjecent){
 			TransArc *cTarc=iterater->trans_arcs;	
 			while(cTarc){
 				int index=globalCellNr2localCellNr(current->vert_num,gridDims,local_dims);
-				if(isReachable(adjecent[index],cTarc->vert_num)){
-					addExArc(current,newExArc(cTarc->vert_num, cTarc->proc_nr));
+				if(isReachable(adjecent[index],cTarc->head->vert_num)){
+					addExArc(current,newExArc(cTarc->head));
 				}
-				cTarc=cTarc->next;
+				cTarc=cTarc->next; 	
 			}
 			iterater=iterater->next;
 	}
@@ -173,8 +188,7 @@ void merge(ExpGraph* expGraph){
 				int procNr=set(rank,h);
 				ExpGraph *expRecieved;
 				RecieveExp(procNr,&expRecieved);
-								
-				MergeGraphs(expGraph, expRecieved,rank,procNr);	
+				expGraph=MergeGraphs(expGraph, expRecieved,rank,procNr);	
 						
 			}else{
 		//		printf("Rank=%d. Send expG to processor %d \n",rank,clear(rank,h));
@@ -186,6 +200,7 @@ void merge(ExpGraph* expGraph){
 
 }
 
+/*Returns the h least-significant bits of z  */
 int last(int z, int h){
 	int res=0;
 	for(int i=0;i<h;i++){
@@ -196,14 +211,15 @@ int last(int z, int h){
 	return res;
 }
 
+/*Returns the h least-significant bit of z */
 int test(int z, int h){
 	return ((z>>(h))&1);
 }
-
+/* Returns z with the h least-significant bit set to 1 */
 int set(int z, int h){
 	return z|=1<<(h);
 }
-
+/* Returns z with the h-least significant bit set to 0 */
 int clear(int z, int h){
 	z &= ~(1 << (h));
 	return z;
@@ -242,16 +258,16 @@ int packGraph(ExpGraph *exp, int **send_buffer){
 		TransArc *cTarc=current->trans_arcs;
 		while(cTarc){
 			
-			addToBuffer(send_buffer,cTarc->vert_num,&counter,&size_send_buffer);
-			addToBuffer(send_buffer,cTarc->proc_nr,&counter,&size_send_buffer);
+			addToBuffer(send_buffer,cTarc->head->vert_num,&counter,&size_send_buffer);
+			addToBuffer(send_buffer,cTarc->head->procNr,&counter,&size_send_buffer);
 			cTarc=cTarc->next;
 		}
 		addToBuffer(send_buffer,-2,&counter,&size_send_buffer);
 		
 		ExArc *cEarc=current->exp_arcs;
 		while(cEarc){	
-			addToBuffer(send_buffer,cEarc->vert_num,&counter,&size_send_buffer);
-			addToBuffer(send_buffer,cEarc->proc_nr,&counter,&size_send_buffer);
+			addToBuffer(send_buffer,cEarc->head->vert_num,&counter,&size_send_buffer);
+			addToBuffer(send_buffer,cEarc->head->procNr,&counter,&size_send_buffer);
 			cEarc=cEarc->next;
 		}
 
@@ -319,62 +335,121 @@ ExpGraph *unPackRecvBuffer(int *recv_buffer){
 	//printf("Got here\n");	
 	int index=0;
 	while(recv_buffer[index]!=-9){
-		ExVert *newExVert=new_ExVert(recv_buffer[index],recv_buffer[index+1]);
+		ExVert *newExVert=FindExVert(newExpGraph,recv_buffer[index]);
+		if(!newExVert){
+			newExVert=new_ExVert(recv_buffer[index],recv_buffer[index+1]);
+			addExVert(newExpGraph,newExVert);
+		}
 		index+=2;
 
 		while(recv_buffer[index]!=-2){
-			addTransArc(newExVert, newTransArc(recv_buffer[index+1], recv_buffer[index]));
+			ExVert *find=FindExVert(newExpGraph,recv_buffer[index]);
+			if(find){
+				addTransArc(newExVert, newTransArc(find));
+			}else{
+				
+				ExVert *new=new_ExVert(recv_buffer[index],recv_buffer[index+1]);
+				addExVert(newExpGraph,new);
+				addTransArc(newExVert, newTransArc( new));
+			}
 			//NB: Note that we here reverse the input of vert_num and procNr because of the definition of newTransArc.
 			index+=2;
 		}
 		index++;
 		
 		while(recv_buffer[index]!=-1){
-			addExArc(newExVert,  newExArc(recv_buffer[index], recv_buffer[index+1] ) );
+			ExVert *find=FindExVert(newExpGraph,recv_buffer[index]);
+			if(find){
+				addExArc(newExVert, newExArc(find));
+			}else{	
+				ExVert *new=new_ExVert(recv_buffer[index],recv_buffer[index+1]);
+				addExVert(newExpGraph,new);
+				addExArc(newExVert,  newExArc(new ) );
+			}
 			index+=2;
 	
 		}
-		addExVert(newExpGraph,newExVert);
 		index++;
 	}
 	return newExpGraph;
 }
 
 
-void MergeGraphs(ExpGraph* exp1, ExpGraph* exp2, int origin1, int origin2){
-	ExpGraph *exp0=mergeVertices(exp1,exp2);
-	
+ExpGraph* MergeGraphs(ExpGraph* exp1, ExpGraph* exp2, int origin1, int origin2){
+	//Transfer vertices and express-arcs of exp1 and exp2 to a new express-graph
+	ExpGraph *exp0=mergeVertices(exp1,exp2, origin2);
+	if(rank==-1){
+	printf("merging for with %d on %d",origin2,origin1);
+	printfExpGraph(exp1);		
+	printfExpGraph(exp2);
+	printf(" --- \n");
+	printfExpGraph(exp0);		
+	}
+	RemoveList *toRemove= new_RemoveList();
 	//Iterate through trans_arcs in exp1 and exp2 
 	ExVert *cExVert=exp1->first;
 	while(cExVert){
-		if(cExVert->procNr==origin1){//check whether this is an entrance vertex
-			cExVert=cExVert->next;
-			continue;
-		}	
-		TransArc *cTarc=cExVert->trans_arcs;
-		while(cTarc){
-			ExVert *vert=FindExVert(exp0,cTarc->vert_num);
-			if(!vert){
-				addTransArc(FindExVert(exp0,cExVert->vert_num),newTransArc(cTarc->proc_nr,cTarc->vert_num));
-			}else{
-				if(isExArc(vert,cExVert)){
-					printf("cycle found\n");
-					MPI_Finalize();
-					exit(0);
-				}
-				removeAndReplaceTransArc(exp0,cExVert,vert);
-
-			}
-			cTarc=cTarc->next;
-		}		
+		checkVertex(exp0,cExVert, origin1, toRemove);	
 		cExVert=cExVert->next;
 	}
+	//identical for exp2
+	cExVert=exp2->first;
+	while(cExVert){
+		checkVertex(exp0,cExVert, origin1, toRemove);
+		cExVert=cExVert->next;
+	}
+
+
+	printf("Merge done\n");
+	return exp0;
+}
+
+RemoveList* new_RemoveList(){
+	RemoveList *new=malloc(sizeof(RemoveList));
+	new->size=0;
+	new->capasity=10;
+	new->list=malloc(10*sizeof(ExVert*));
+	
+	return new;
+}
+
+void addToListOfMarked(RemoveList *list,ExVert *add){
+	if(list->size==list->capasity){
+		list->capasity*=2;
+		list->list=realloc(list->list,(list->capasity)*sizeof(ExVert*));
+	}
+	list->list[(list->size)++]=add;
+}
+
+
+void checkVertex(ExpGraph *exp0, ExVert *cExVert, int origin, RemoveList *toRemove){
+	if(cExVert->procNr!=origin){//check whether this is an entrance vertex
+			return;	//if it is an entrance vertex
+	}	
+	TransArc *cTarc=cExVert->trans_arcs;
+	while(cTarc){
+		ExVert *vert=FindExVert(exp0,cTarc->head->vert_num);
+		if(!vert){
+			ExVert *newTrans=new_ExVert(cTarc->head->vert_num,cTarc->head->procNr);
+			addTransArc(FindExVert(exp0,cExVert->vert_num),newTransArc(newTrans));	
+		}else{	
+			ExVert *cExInExp0=FindExVert(exp0,cExVert->vert_num);
+			if(isExArc(vert,cExInExp0)){
+				printf("cycle found\n");
+				MPI_Finalize();
+				exit(0);
+			}
+			removeAndReplaceTransArc(exp0,cExInExp0,vert, toRemove);
+
+		}
+		cTarc=cTarc->next;
+	}	
 }
 
 bool isExArc(ExVert *terminal ,ExVert *initial){
 	ExArc *current=terminal->exp_arcs;
 	while(current){
-		if(current->vert_num==initial->vert_num){
+		if(current->head->vert_num==initial->vert_num){
 			return true;
 		}
 		current=current->next;
@@ -382,29 +457,53 @@ bool isExArc(ExVert *terminal ,ExVert *initial){
 	return false;
 }
 
-void removeAndReplaceTransArc(ExpGraph *G,ExVert *init, ExVert *term ){
+void removeAndReplaceTransArc(ExpGraph *G,ExVert *init, ExVert *term, RemoveList *toRemove){
 	ExVert *globalCurrent=G->first;
 	while(globalCurrent){
-	
+		removeTransArcs(globalCurrent,init);
+		removeTransArcs(globalCurrent,term);
 		ExArc *localCurrent = globalCurrent->exp_arcs;
 		while(localCurrent){
-			if(localCurrent->vert_num==init->vert_num){
-				transferExArcs(globalCurrent,init,term);
-				removeExArc(globalCurrent,localCurrent);
+			if(localCurrent->head->vert_num==init->vert_num){
+				transferExArcs(G,globalCurrent,init,term);
+				ExArc *to_be_del=localCurrent;
+				localCurrent=localCurrent->next;
+				removeExArc(globalCurrent,to_be_del);
+				continue;
 
 			}
 			localCurrent=localCurrent->next;
 		}
 	globalCurrent=globalCurrent->next;
 	}
-	removeExVert(G,init);
-	removeExVert(G,term);
+	addToListOfMarked(toRemove,init);
+	addToListOfMarked(toRemove,term);
+}
+void removeTransArcs(ExVert *vert,ExVert *remove){
+	if(!vert->trans_arcs){
+		return; 
+	}
+	TransArc *prev=vert->trans_arcs;
+	if(prev->head->vert_num==remove->vert_num){
+		vert->trans_arcs=prev->next;
+		return; 
+	}
+	TransArc *current=current->next;
+	while(current){
+		if(current->head->vert_num==remove->vert_num){
+			prev->next=current->next;
+			free(current);
+			return;
+		}
+		current=current->next;
+	}
+
 }
 
-void transferExArcs(ExVert *globalCurrent, ExVert *init, ExVert *term){
+void transferExArcs(ExpGraph *G,ExVert *globalCurrent, ExVert *init, ExVert *term){
 	ExArc *currentArc =term->exp_arcs;
 	while(currentArc){
-		addExArc(globalCurrent,newExArc(currentArc->vert_num, rank));
+		addExArc(globalCurrent,newExArc(currentArc->head));
 		currentArc=currentArc->next;
 	} 
 }
@@ -413,7 +512,7 @@ void comm_transArcs(ExpGraph *expGraph){
 	//send/recv buffers
 	EdgeLst* trans_buffer=(EdgeLst *)malloc(NEIGHBOURS*sizeof(EdgeLst));
 	//*expGraph=new_EdgeLst(0);
-	printf("OK SO FAR\n");
+//	printf("OK SO FAR\n");
 
 	int *buffSizes=(int *)calloc(NEIGHBOURS, sizeof(int));
 	for(int i=0; i<NEIGHBOURS;i++){
@@ -537,6 +636,7 @@ void comm_transArcs(ExpGraph *expGraph){
 void build_transBuffer(int * buffSizes, EdgeLst* trans_buffer, ExpGraph *expGraph){	
 	ExVert* current=expGraph->first;
 	
+	
 	//iterate through every trans arc of every  vertex.
 	while(current){
 		TransArc *currTransArc=current->trans_arcs;
@@ -545,21 +645,21 @@ void build_transBuffer(int * buffSizes, EdgeLst* trans_buffer, ExpGraph *expGrap
 			//makes a send buffer for each of the (possibly) four neighbours. 
 			//The four directions maps to the following indices in the transferbuffer:
 			//north=0, south=1, west=2 and east=3,.
-			if(currTransArc->proc_nr==north){
-				add_EdgeToLst(new_edge(current->vert_num,currTransArc->vert_num),buffSizes[0],&trans_buffer[0]);
+			if(currTransArc->head->procNr==north){
+				add_EdgeToLst(new_edge(current->vert_num,currTransArc->head->vert_num),buffSizes[0],&trans_buffer[0]);
 				buffSizes[0]+=1;
 			}
-			if(currTransArc->proc_nr==south){
-				add_EdgeToLst(new_edge(current->vert_num,currTransArc->vert_num),buffSizes[1],&trans_buffer[1]);
+			if(currTransArc->head->procNr==south){
+				add_EdgeToLst(new_edge(current->vert_num,currTransArc->head->vert_num),buffSizes[1],&trans_buffer[1]);
 				buffSizes[1]+=1;
 			}
-			if(currTransArc->proc_nr==west){
-				add_EdgeToLst(new_edge(current->vert_num,currTransArc->vert_num),buffSizes[2],&trans_buffer[2]);
+			if(currTransArc->head->procNr==west){
+				add_EdgeToLst(new_edge(current->vert_num,currTransArc->head->vert_num),buffSizes[2],&trans_buffer[2]);
 				buffSizes[2]+=1;
 			}
-			if(currTransArc->proc_nr==east){
+			if(currTransArc->head->procNr==east){
 			
-				add_EdgeToLst(new_edge(current->vert_num,currTransArc->vert_num),buffSizes[3],&trans_buffer[3]);
+				add_EdgeToLst(new_edge(current->vert_num,currTransArc->head->vert_num),buffSizes[3],&trans_buffer[3]);
 				buffSizes[3]+=1;
 			}
 		currTransArc=currTransArc->next;
@@ -573,8 +673,13 @@ void recvTransArcs(Edge* list, int size, ExpGraph *expGraph, int procNr){
 	
 	for(int i=0; i<size;i++){
 		ExVert *new=new_ExVert(list[i].v,procNr);
+		ExVert *find=FindExVert(expGraph,list[i].w);
+		if(find){
+			addTransArc(new,newTransArc(find));
+		}else{
+			addTransArc(new, newTransArc( new_ExVert(list[i].w,rank)));
+		}
 		addExVert(expGraph,new);
-		addTransArc(new, newTransArc( rank, list[i].w));
 	}
 
 }

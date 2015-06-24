@@ -14,9 +14,14 @@ int rank,                       // MPI rank
 
 MPI_Comm cart_comm; 
 
+
 int* local_ia;
 int* local_ja;
 int* local_map;
+
+int begin,end;
+double time_spent;
+
 #else
 //Global variables
 extern int rank,                       // MPI rank
@@ -33,6 +38,9 @@ extern MPI_Comm cart_comm;
 extern int* local_ia;
 extern	int* local_ja;
 extern	int* local_map;
+
+extern int begin,end;
+extern double time_spent;
 #endif
 #endif
 

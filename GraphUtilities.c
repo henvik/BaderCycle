@@ -157,6 +157,8 @@ void importGrid(char* file, int **ia, int **ja, int *nv){
 
 
 void printGraph(int* ia, int *ja, int nv){
+/* Prints an adjecent graph */
+
 	int i,j;
 	for(i=0;i<nv;i++){
 		printf("Vertex %d has edges to: ",i);
@@ -168,6 +170,7 @@ void printGraph(int* ia, int *ja, int nv){
 }
 
 void printMappedGraph(int* ia, int *ja,int *map, int nv){
+/*Prints a mapped graph.*/
 	int i,j;
 	for(i=0;i<nv;i++){
 		printf("Vertex %d has edges to: ",map[i]);
@@ -278,6 +281,7 @@ void expand_buffer(EdgeLst *recv_buffer, int recv_size){
 
 
 ExpGraph* new_ExpGraph(){
+/*Allocates a new instance of an ExpGraph, sets the first vetex to NULL and the number og vertices to 0*/
 	ExpGraph *new = malloc(sizeof(ExpGraph));
 	
 	new->first=NULL;
@@ -287,6 +291,7 @@ ExpGraph* new_ExpGraph(){
 }
 
 ExVert* new_ExVert(int vert_num, int procNr){
+/*Allocates a new instance of an ExVert. Sets the vert_num and procNr as specified by the input.*/
 	ExVert *new = malloc(sizeof(ExVert));
 	
 	new->vert_num=vert_num;
@@ -301,6 +306,7 @@ ExVert* new_ExVert(int vert_num, int procNr){
 
 
 void addExVert(ExpGraph *G, ExVert *vert){
+/*Adds a ExVert to an ExpGraph*/
 	vert->next=G->first;
 	G->first=vert;
 	G->num_vert++;
@@ -322,7 +328,7 @@ void addExArc(ExVert *vert, ExArc *ex_arc){
 bool isInExp_arcs(ExVert *vert,ExArc *ex_arc){
 	ExArc *current=vert->exp_arcs;
 	while(current){
-		if(current->vert_num==ex_arc->vert_num){
+		if(current->head==ex_arc->head){
 			return true;
 		}
 		current=current->next;
@@ -330,21 +336,19 @@ bool isInExp_arcs(ExVert *vert,ExArc *ex_arc){
 	return false;
 }
 
-TransArc* newTransArc(int proc_nr, int vert_num){
+TransArc* newTransArc(ExVert *head){
 	TransArc* new = malloc(sizeof(TransArc));
 	
-	new->proc_nr=proc_nr;
-	new->vert_num=vert_num;
+	new->head=head;
 	new->next=NULL;
 	
 	return new;
 }
 
-ExArc* newExArc(int vert_num, int proc_nr){
+ExArc* newExArc(ExVert *head){
 	ExArc* new = malloc(sizeof(ExArc));
 	
-	new->vert_num=vert_num;
-	new->proc_nr=proc_nr;
+	new->head=head;
 	new->next=NULL;
 	
 	return new;
@@ -352,14 +356,14 @@ ExArc* newExArc(int vert_num, int proc_nr){
 
 void removeExArc(ExVert *vert, ExArc *exarc){
 	ExArc *current=vert->exp_arcs;
-	if(current->vert_num==exarc->vert_num){
+	if(current->head==exarc->head){
 		vert->exp_arcs=exarc->next;
 		free(exarc);
 		return;
 	}
 	
 	ExArc *next=current->next;
-	while(next->vert_num!=exarc->vert_num){
+	while(next->head!=exarc->head){
 		current=next;
 		next=current->next;
 	}
@@ -383,7 +387,7 @@ void removeExVert(ExpGraph *G,ExVert *vert){
 
 ExVert* FindExVert(ExpGraph *G, int v){
 	ExVert *current = G->first;
-	while(current!=NULL){
+	while(current){
 		if(current->vert_num==v){
 			return current;
 		}
@@ -397,17 +401,17 @@ ExVert* FindExVert(ExpGraph *G, int v){
 void printfExpGraph(ExpGraph *G){
 	ExVert *current=G->first;
 	while(current!=NULL){
-		printf("Vert %d has: \n",current->vert_num);
+		printf("Vert %d  on %d has: \n",current->vert_num, current->procNr);
 		printf("     trans arcs: ");
 		TransArc *cTArc=current->trans_arcs;
 		while(cTArc!=NULL){
-			printf(" %d,", cTArc->vert_num);
+			printf(" %d,", cTArc->head->vert_num);
 			cTArc=cTArc->next;
 		}
 		printf("\n Express arcs: ");
 		ExArc *cEArc =current->exp_arcs;
 		while(cEArc!=NULL){
-			printf(" %d,", cEArc->vert_num);
+			printf(" %d,", cEArc->head->vert_num);
 			cEArc=cEArc->next;
 		}
 		printf("\n");
@@ -417,8 +421,9 @@ void printfExpGraph(ExpGraph *G){
 
 void addExternalEdge(ExpGraph *G, int internal_vert_num, int external_vert_num, int in_procNr ,int external_procNr, AdjLst *adjecent){
 	ExVert *exit = new_ExVert(internal_vert_num, in_procNr);
-	
-	addTransArc(exit,newTransArc(external_procNr,external_vert_num));
+	ExVert *entrance = new_ExVert(external_vert_num,external_procNr);	
+	addTransArc(exit,newTransArc(entrance));
+	addExVert(G,entrance);
 	addExVert(G, exit);
 	
 	add_Edge(adjecent,external_vert_num);
@@ -444,45 +449,60 @@ bool isInExpGraph(ExpGraph *G, int vert_num){
 	return false;
 }
 
-ExpGraph* mergeVertices(ExpGraph *exp1,ExpGraph *exp2){
+ExpGraph* mergeVertices(ExpGraph *exp1,ExpGraph *exp2,int origin2){
 	
 	ExpGraph *exp0=new_ExpGraph();
 	ExVert *current=exp1->first;
-	
+	ExVert *find;	
+
 	while(current){
+		if(current->procNr==origin2){
+			current->procNr=rank;
+		}
 		ExVert *new=new_ExVert(current->vert_num,current->procNr);
+		addExVert(exp0,new);
+		current=current->next;
+
+	}	
+	current=exp2->first;
+
+	while(current){
+		if(FindExVert(exp0,current->vert_num)){
+			current=current->next;
+			continue;
+		}
+		if(current->procNr==origin2){
+			current->procNr=rank;
+		}
+		ExVert *new=new_ExVert(current->vert_num,current->procNr);
+		addExVert(exp0,new);
+		current=current->next;
+
+	}	
+	
+	current=exp1->first;
+	while(current){
 		ExArc *cExArc=current->exp_arcs;
+		find=FindExVert(exp0,current->vert_num);
 		while(cExArc){
-			addExArc(new,newExArc(cExArc->vert_num,cExArc->proc_nr));
+			ExArc *new_arc=newExArc(FindExVert(exp0,cExArc->head->vert_num));
+			addExArc(find,new_arc);
 			cExArc=cExArc->next;
 		}
-		addExVert(exp0,new);
 		current=current->next;
 
 	}
 	current=exp2->first;
 	while(current){
-		if(isInExpGraph(exp0,current->vert_num)){
-			ExVert *this=FindExVert(exp0,current->vert_num);	
-			ExArc *cExArc=current->exp_arcs;
-			while(cExArc){
-				addExArc(this,newExArc(cExArc->vert_num,cExArc->proc_nr));
-				cExArc=cExArc->next;
-				
-			}
-		}else{
-			ExVert *new=new_ExVert(current->vert_num,current->procNr);
-			ExArc *cExArc=current->exp_arcs;
-			while(cExArc){
-				addExArc(new,newExArc(cExArc->vert_num,cExArc->proc_nr));
-				cExArc=cExArc->next;
-				
-			}
-
-			addExVert(exp0,new);
+		ExArc *cExArc=current->exp_arcs;
+		find=FindExVert(exp0,current->vert_num);
+		while(cExArc){
+			ExArc *new_arc=newExArc(FindExVert(exp0,cExArc->head->vert_num));
+			addExArc(find,new_arc);
+			cExArc=cExArc->next;
 		}
 		current=current->next;
+
 	}
-	
 	return exp0;
 }

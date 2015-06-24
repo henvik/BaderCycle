@@ -3,6 +3,7 @@
 #include<stdlib.h>
 #include<mpi.h>
 #include<stdbool.h>
+#include<time.h>
 
 #include"DistGather.h"
 #include"GraphUtilities.h"
@@ -23,27 +24,26 @@ int main(int argc,  char* argv[]){
 	int *ia, *ja;
 	
 	if(rank==0){
-			importGrid("Grids/grid1src100.txt", &ia, &ja, &nv);
-		//	printGraph(ia,ja,nv);
+			importGrid("Grids/graphSpec512x512.txt", &ia, &ja, &nv);
+//			printGraph(ia,ja,nv);
 		
 	}
-		
-// 	 int num=1;
-// 	int bit=0;
-// // 	
-//  	printf("We set the %dth bit of %d to 1: %d\n",bit,num,set(num,bit));
-		
+				
 	//All processors need to know the global problem size. (Would be cool, and probably possible, to avoid this.) 
  	MPI_Bcast(&nv, 1, MPI_INT, 0,cart_comm);
  	localSetup(nv);
 	distGraph(ia,ja);
 // 	printf("I am nr %d. North=%d, south=%d, west=%d, and east=%d. \n",rank,north,south,west,east);	
-
- //	if(rank==3){
+	
+	begin=clock();
 	ExpGraph *expGraph=discovery(nv/size);
+	//printfExpGraph(expGraph);
 // 	printMappedGraph(local_ia,local_ja,local_map,nv/size);
-  //	}
-	merge(expGraph);
+  
+  	merge(expGraph);
+	end=clock();
+	time_spent=(double)(end-begin)/CLOCKS_PER_SEC;
+	printf("For proc %d, BaderDetect took %f \n",rank,time_spent);
     free_local();
     if(rank==0){
 	    free(ia);
